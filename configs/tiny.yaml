@@ -1,0 +1,65 @@
+general:
+    wandb:
+        project: video_autoencoder_basic
+        run_name: vit-1d
+        log_step_interval: 50
+
+    checkpoints:
+        save_path: out_ckpt
+        save_interval: 1000
+        keep_prior: 2 # -1 to keep all
+
+        resume_from_checkpoint:
+        init_from_checkpoint:
+
+tokenizer:
+    model:
+        patch_size: [4, 8, 8]
+        in_grid: [8, 128, 128] # video size
+        num_tokens: 128 # latent token count
+
+        fsq_levels: [7, 5, 5, 5, 5] # multiply all leels to get total codebook size. See FSQ paper.
+        encoder_size: tiny_thin
+        decoder_size: tiny_thin
+
+        perceptual_weight: 1.0 # 1.0
+        perceptual_subsample: 24 # randomly use subset of frames for VRAM saving rather than batch_size*num_frames. -1 to disable.
+
+    optimizer:
+        lr_schedule: cosine # cosine, constant
+        learning_rate: 1e-4
+        end_lr: 1e-5
+        warmup_steps: 1000
+
+        beta1: 0.9
+        beta2: 0.99
+        weight_decay: 1e-4
+
+dataset:
+    train_dataset: "hf://datasets/NilanE/Vchitect_T2V_DataVerse_256p_8fps_wds/shards/{00000..00079}.tar"
+    eval_dataset: "hf://datasets/facebook/PE-Video/test/{000000..000029}.tar"
+    fps: 4 # low FPS during training has better end performance. See VidTok paper.
+    workers: 3
+    pin_memory: False
+
+training:
+    main:
+        batch_size: 16
+        max_steps: 600000
+        precision: bf16-mixed
+        accelerator: 'gpu'
+        train_devices: 1
+        enable_tf32: True
+
+        seed: 42
+        max_grad_norm: 1.0
+
+    eval:
+        eval_step_interval: 1000
+        num_eval: 1024
+
+        log_fvd: True
+        log_recon_num: 16
+
+        random_recon: True # whether to sample recon videos randomly from the eval set, or take the first log_recon_num
+        clear_cache: True

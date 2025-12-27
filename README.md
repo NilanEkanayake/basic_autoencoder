@@ -1,0 +1,1 @@
+Basic video autoencoder for learning/testing purposes.
