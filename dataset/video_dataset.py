@@ -23,7 +23,7 @@ import math
 def _video_process(data, config=None, eval=False):
     cd = config.dataset
     cm = config.tokenizer.model
-    trg_grid = cm.in_grid # THW
+    trg_grid = cd.in_grid # THW
     trg_fps = cd.fps
     max_eval = config.training.eval.num_eval
 

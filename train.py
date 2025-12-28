@@ -27,6 +27,8 @@ class ModelTrainer(L.LightningModule):
         super().__init__()
         self.config = config
         self.clip_grads = config.training.main.get('max_grad_norm', False)
+        self.use_disc = config.discriminator.use_disc
+        self.disc_start = config.discriminator.disc_start
 
         self.model = AutoEncoder(config)
         self.eval_metrics = EvalMetrics(config)
@@ -39,27 +41,58 @@ class ModelTrainer(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         orig = batch['video']
-        opt_g, sched_g = self.optimizers(), self.lr_schedulers()
 
-        ############################
+        ###
+        if self.use_disc:
+            opt_g, opt_d = self.optimizers()
+            sched_g, sched_d = self.lr_schedulers()
+            # Bugfix, see: https://github.com/Lightning-AI/pytorch-lightning/issues/17958
+            opt_d._on_before_step = lambda : self.trainer.profiler.start("optimizer_step")
+            opt_d._on_after_step = lambda : self.trainer.profiler.stop("optimizer_step")
+        else:
+            opt_g, sched_g = self.optimizers(), self.lr_schedulers()
+        ###
+
+        ######## tokenizer ########
         self.toggle_optimizer(opt_g)
         opt_g.zero_grad(set_to_none=True)
 
         x, results_dict = self.model(orig)
-        loss, loss_dict = self.loss_module(orig, x)
+        g_loss, loss_dict = self.loss_module(orig, x, self.global_step)
 
-        self.manual_backward(loss)
+        self.manual_backward(g_loss)
         if self.clip_grads:
-            self.clip_gradients(opt_g, gradient_clip_val=self.config.training.main.max_grad_norm)
+            self.clip_gradients(opt_g, gradient_clip_val=self.clip_grads)
         if self.global_step % self.config.training.eval.eval_step_interval == 0:
             self.log_dict(grad_norm(self.model, norm_type=2))
         opt_g.step()
-        sched_g.step()
-        loss_dict['lr_g'] = torch.tensor(sched_g.get_last_lr()).mean()
+        sched_g.step(self.global_step)
         self.untoggle_optimizer(opt_g)
-        ############################
+
+        loss_dict['lr_g'] = torch.tensor(sched_g.get_last_lr()).mean()
+        ###########################
+
+        ###### discriminator ######
+        if self.use_disc and self.global_step >= self.disc_start:
+            self.toggle_optimizer(opt_d)
+            opt_d.zero_grad(set_to_none=True)
+            
+            d_loss, d_loss_dict = self.loss_module(orig, x, self.global_step, disc_forward=True)
+
+            self.manual_backward(d_loss)
+            if self.clip_grads:
+                self.clip_gradients(opt_d, gradient_clip_val=self.clip_grads)
+            if self.global_step % self.config.training.eval.eval_step_interval == 0:
+                self.log_dict(grad_norm(self.loss_module, norm_type=2))
+            opt_d.step()
+            sched_d.step(self.global_step)
+            self.untoggle_optimizer(opt_d)
+
+            loss_dict.update(d_loss_dict)
+            loss_dict['lr_d'] = torch.tensor(sched_d.get_last_lr()).mean()
+        ###########################
         
-        self.log_dict({'train/'+k:v.clone().mean().detach() for k,v in loss_dict.items()}, prog_bar=True)
+        self.log_dict({'train/'+k:v.clone().mean().detach() for k,v in loss_dict.items()})
         self.codebook_logger(results_dict['indices'].detach().cpu())
 
 
@@ -111,35 +144,50 @@ class ModelTrainer(L.LightningModule):
 
 
     def configure_optimizers(self):
-        opt_conf_g = self.config.tokenizer.optimizer
-
-        # Exclude terms we may not want to apply weight decay.
-        exclude = (lambda n, p: p.ndim < 2 or "ln" in n or "bias" in n or 'token_mask' in n 
-                or 'mask_token' in n or 'embedding' in n or 'norm' in n or 'gamma' in n or 'embed' in n)
-        include = lambda n, p: not exclude(n, p)
-        named_parameters = list(self.model.named_parameters())
-        gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
-        rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+        conf_g = self.config.tokenizer.optimizer
+        conf_d = self.config.discriminator.optimizer
+        max_steps = self.config.training.main.max_steps
+        warmup_steps = conf_g.warmup_steps
+        g_lr = conf_g.learning_rate
+        g_end_lr = conf_g.end_lr
+        d_lr_ratio = conf_d.lr_ratio
 
         opt_g = optim.AdamW(
-            [
-                {"params": gain_or_bias_params, "weight_decay": 0.},
-                {"params": rest_params, "weight_decay": opt_conf_g.weight_decay},
-            ],
-            lr=opt_conf_g.learning_rate, 
-            betas=[opt_conf_g.beta1, opt_conf_g.beta2],
+            self.model.parameters(),
+            weight_decay=conf_g.weight_decay,
+            lr=g_lr, 
+            betas=[conf_g.beta1, conf_g.beta2],
         )
 
         lr_g = get_scheduler(
             name='cosine',
             optimizer=opt_g,
-            num_warmup_steps=opt_conf_g.warmup_steps,
-            num_training_steps=self.config.training.main.max_steps,
-            base_lr=opt_conf_g.learning_rate,
-            end_lr=opt_conf_g.end_lr,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=max_steps,
+            base_lr=g_lr,
+            end_lr=g_end_lr,
         )
 
-        return [opt_g], [lr_g]
+        if self.use_disc:
+            opt_d = optim.AdamW(
+                self.loss_module.disc_model.parameters(),
+                weight_decay=conf_d.weight_decay,
+                lr=g_lr*d_lr_ratio, 
+                betas=[conf_d.beta1, conf_d.beta2],
+            )
+
+            lr_d = get_scheduler(
+                name='cosine',
+                optimizer=opt_d,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=max_steps,
+                base_lr=g_lr*d_lr_ratio,
+                end_lr=g_end_lr*d_lr_ratio,
+            )
+            
+            return [opt_g, opt_d], [lr_g, lr_d]
+        else:
+            return [opt_g], [lr_g]
 
         
     def state_dict(self):

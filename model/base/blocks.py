@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.base.transformer import ResidualAttentionBlock
-from model.base.utils import get_model_dims
+from model.base.utils import get_model_dims, init_weights
 
 from einops.layers.torch import Rearrange
 from einops import rearrange
@@ -40,6 +40,7 @@ class Encoder(nn.Module):
         )
 
         self.proj_out = nn.Linear(self.width, self.token_size, bias=True)
+        self.apply(init_weights)
 
     def forward(self, x):
         B = x.shape[0]
@@ -91,7 +92,7 @@ class Decoder(nn.Module):
         )
 
         self.proj_out = nn.Linear(in_features=self.width, out_features=out_channels*math.prod(patch_size))
-
+        self.apply(init_weights)
 
     def forward(self, x): # unlike the encoder, 'x' is the quantized latent tokens
         B = x.shape[0]

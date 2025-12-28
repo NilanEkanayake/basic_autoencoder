@@ -1,7 +1,7 @@
 general:
     wandb:
         project: video_autoencoder_basic
-        run_name: vit-1d
+        run_name: vit-1d-GAN
         log_step_interval: 50
 
     checkpoints:
@@ -15,29 +15,49 @@ general:
 tokenizer:
     model:
         patch_size: [4, 8, 8]
-        in_grid: [8, 128, 128] # video size
         num_tokens: 128 # latent token count
 
-        fsq_levels: [7, 5, 5, 5, 5] # multiply all leels to get total codebook size. See FSQ paper.
+        fsq_levels: [7, 5, 5, 5, 5] # multiply all levels to get total codebook size. See FSQ paper.
         encoder_size: tiny_thin
         decoder_size: tiny_thin
 
+    losses:
+        disc_weight: 0.4
         perceptual_weight: 1.0 # 1.0
         perceptual_subsample: 24 # randomly use subset of frames for VRAM saving rather than batch_size*num_frames. -1 to disable.
 
     optimizer:
-        lr_schedule: cosine # cosine, constant
         learning_rate: 1e-4
         end_lr: 1e-5
-        warmup_steps: 1000
+        warmup_steps: 1000 # shared with discriminator
 
-        beta1: 0.9
-        beta2: 0.99
+        beta1: 0.5 # set to 0.5 or 0.0 if using discriminator
+        beta2: 0.96
+        weight_decay: 1e-4
+
+discriminator:
+    use_disc: True # whether to init disc weights and optimizer. Can be enabled on resume from pretrained non-disc ckpt.
+    disc_start: 1 # start step. Usually set to either the start of training, or once the tokenizer is hitting diminishing returns (eg. 50k steps).
+
+    model:
+        patch_size: [4, 8, 8]
+        model_size: tiny_thin
+
+    losses:
+        gp_weight: 0.1 # gp = gradient penalty
+        gp_noise: 0.1
+        centering_weight: 0.01 # zero-centers real/fake logits
+
+    optimizer:
+        lr_ratio: 0.15 # 1.0 = same LR as tokenizer, 0.5 = half, etc.
+        beta1: 0.5
+        beta2: 0.96
         weight_decay: 1e-4
 
 dataset:
     train_dataset: "hf://datasets/NilanE/Vchitect_T2V_DataVerse_256p_8fps_wds/shards/{00000..00079}.tar"
     eval_dataset: "hf://datasets/facebook/PE-Video/test/{000000..000029}.tar"
+    in_grid: [8, 128, 128] # video size
     fps: 4 # low FPS during training has better end performance. See VidTok paper.
     workers: 3
     pin_memory: False

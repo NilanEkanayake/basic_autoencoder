@@ -2,14 +2,13 @@ import torch
 import torch.nn as nn
 from model.base.blocks import Encoder, Decoder
 from model.quantizer.fsq import FSQ
-from model.base.utils import init_weights
-
 
 class AutoEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
         titok_conf = config.tokenizer.model
+        in_grid = config.dataset.in_grid
         token_size = len(titok_conf.fsq_levels)
 
         self.encoder = Encoder(
@@ -17,7 +16,7 @@ class AutoEncoder(nn.Module):
             patch_size=titok_conf.patch_size,
             in_channels=3,
             out_channels=token_size,
-            in_grid=titok_conf.in_grid,
+            in_grid=in_grid,
             out_tokens=titok_conf.num_tokens,
         )
         self.quantize = FSQ(levels=titok_conf.fsq_levels)
@@ -27,10 +26,8 @@ class AutoEncoder(nn.Module):
             in_channels=token_size,
             out_channels=3,
             in_tokens=titok_conf.num_tokens,
-            out_grid=titok_conf.in_grid,
+            out_grid=in_grid,
         )
-
-        self.apply(init_weights)
 
     def encode(self, x):
         x = self.encoder(x)

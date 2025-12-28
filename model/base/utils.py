@@ -13,7 +13,7 @@ def get_model_dims(model_size='tiny', head_dim=64, mlp_ratio=4.0):
             "large": 8,
         }[model_size]
         heads = {
-            "tiny": 8, # Q heads, KV heads | GQA
+            "tiny": 8,
             "small": 12,
             "base": 16,
             "large": 32,
