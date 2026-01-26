@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from model.base.blocks import Encoder, Decoder
+# from model.base.resnaf_blocks import Encoder, Decoder
 from model.quantizer.fsq import FSQ
 
 class AutoEncoder(nn.Module):

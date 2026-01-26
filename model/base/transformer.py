@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from model.base.rope import apply_rotary_emb
 from flash_attn import flash_attn_func
 from einops import rearrange
 import math
@@ -39,7 +40,7 @@ class Attn(nn.Module):
         self.k_norm = nn.LayerNorm(self.head_dim)
         self.out_proj = nn.Linear(dim, dim, bias=False)
 
-    def forward(self, x):
+    def forward(self, x, freqs):
         q, k, v, gate = self.to_qkv(x).chunk(4, dim=-1)
 
         q = q.unflatten(-1, (self.heads, self.head_dim))
@@ -48,6 +49,10 @@ class Attn(nn.Module):
 
         q = self.q_norm(q.contiguous()).to(q)
         k = self.k_norm(k.contiguous()).to(k)
+
+        q = apply_rotary_emb(q, freqs)
+        k = apply_rotary_emb(k, freqs)
+        
         x = flash_attn_func(q, k, v)
 
         x = x.flatten(-2).contiguous()
@@ -71,9 +76,9 @@ class ResidualAttentionBlock(nn.Module):
             self.attn_layer.append(Attn(embed_dim, heads))
             self.ffd_layer.append(ffd(embed_dim, mlp_ratio)) 
    
-    def forward(self, x):
+    def forward(self, x, freqs):
         for i in range(self.num_layer):
-            x = x + self.attn_layer[i](x.contiguous())
+            x = x + self.attn_layer[i](x.contiguous(), freqs)
             x = x + self.ffd_layer[i](x.contiguous())
 
             # LNS (https://arxiv.org/abs/2502.05795) - see section on ViT

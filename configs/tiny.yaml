@@ -1,7 +1,7 @@
 general:
     wandb:
         project: video_autoencoder_basic
-        run_name: vit-1d-GAN
+        run_name: vit-1d-GAN-RoPE
         log_step_interval: 50
 
     checkpoints:

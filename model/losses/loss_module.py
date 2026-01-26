@@ -8,6 +8,7 @@ from model.metrics.lpips import LPIPS
 import random
 
 from model.base.blocks import Encoder # use encoder arch as discriminator
+# from model.base.resnaf_blocks import Encoder 
 
 def l1(x, y):
     return torch.abs(x - y)
@@ -40,7 +41,7 @@ class ReconstructionLoss(nn.Module):
                 in_channels=3,
                 out_channels=1,
                 in_grid=config.dataset.in_grid,
-                out_tokens=1,
+                out_tokens=4, # add >1 as 'register' tokens
             )
 
 

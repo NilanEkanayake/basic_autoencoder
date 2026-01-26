@@ -93,7 +93,7 @@ class ModelTrainer(L.LightningModule):
         ###########################
         
         self.log_dict({'train/'+k:v.clone().mean().detach() for k,v in loss_dict.items()})
-        self.codebook_logger(results_dict['indices'].detach().cpu())
+        self.codebook_logger(results_dict['indices'].flatten(1).detach().cpu())
 
 
     def on_validation_epoch_start(self):
