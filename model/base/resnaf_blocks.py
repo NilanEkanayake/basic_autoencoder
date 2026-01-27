@@ -92,7 +92,7 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         x = rearrange(
-            x, 'b c (nt pt) (nh ph) (nw pw) -> b nt nh nw (c pt ph pw)',
+            x, 'b c (t pt) (h ph) (w pw) -> b t h w (pt ph pw c)',
             pt=self.patch_size[0], ph=self.patch_size[1], pw=self.patch_size[2]
         )
 
@@ -136,7 +136,7 @@ class Decoder(nn.Module):
         x = self.proj_out(x)
         
         x = rearrange(
-            x, 'b nt nh nw (c pt ph pw) -> b c (nt pt) (nh ph) (nw pw)',
+            x, 'b t h w (pt ph pw c) -> b c (t pt) (h ph) (w pw)',
             pt=self.patch_size[0], ph=self.patch_size[1], pw=self.patch_size[2],
         )
         return x
